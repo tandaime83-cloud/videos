@@ -1,0 +1,49 @@
+name: Nettoyage des videos publiees
+
+# Chaque jour, supprime les videos dont la date de publication (nom du fichier JJ-MM.mp4)
+# est passee depuis au moins 2 jours. L'annee vient du dossier AAAA-MM ; un mois inferieur
+# a celui du dossier correspond a l'annee suivante.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nettoyage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Supprimer les videos deja publiees
+        run: |
+          python3 - <<'EOF'
+          import datetime, pathlib, re, subprocess
+          marge = datetime.timedelta(days=2)
+          aujourdhui = datetime.date.today()
+          for f in pathlib.Path(".").glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]/*.mp4"):
+              m = re.match(r"(\d{1,2})-(\d{1,2})", f.stem)
+              if not m:
+                  continue
+              annee, mois_dossier = map(int, f.parent.name.split("-"))
+              jour, mois = int(m.group(1)), int(m.group(2))
+              if mois < mois_dossier:
+                  annee += 1
+              if datetime.date(annee, mois, jour) + marge <= aujourdhui:
+                  print("Suppression :", f)
+                  subprocess.run(["git", "rm", "-q", str(f)], check=True)
+          EOF
+
+      - name: Enregistrer
+        run: |
+          git config user.name "nettoyage-automatique"
+          git config user.email "actions@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "Rien a supprimer aujourd'hui."
+          else
+            git commit -m "Nettoyage des videos publiees"
+            git push
+          fi
